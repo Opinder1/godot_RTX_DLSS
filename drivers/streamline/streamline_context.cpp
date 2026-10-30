@@ -30,6 +30,8 @@
 
 #include "streamline_context.h"
 
+#include "drivers/streamline/streamline.h"
+
 #ifdef STREAMLINE_ENABLED
 #ifdef _WIN32
 #include <windows.h>
@@ -185,6 +187,9 @@ void StreamlineContext::dlssg_disable() {
 		slDLSSGSetOptions(dlssg_viewport, dlssGOptions);
 
 		dlssg_viewport = sl::ViewportHandle(-1);
+	}
+	if (Streamline::get_singleton() != nullptr) {
+		Streamline::get_singleton()->set_frame_generation_enabled(false);
 	}
 }
 

@@ -1843,6 +1843,8 @@ void RenderForwardClustered::_render_3d_upscaling(const RenderDataRD *p_render_d
 	} else if (p_scale_type == SCALE_3D_DLSS) {
 		RENDER_TIMESTAMP("DLSS");
 		rb_data->ensure_dlss(dlss_effect);
+		const bool reset_accumulation = rb->is_temporal_reset_requested();
+		const bool can_consume_reset = dlss_effect->is_ready(rb_data->get_dlss_context());
 
 		RID exposure;
 		if (RSG::camera_attributes->camera_attributes_uses_auto_exposure(p_render_data->camera_attributes)) {
@@ -1871,7 +1873,7 @@ void RenderForwardClustered::_render_3d_upscaling(const RenderDataRD *p_render_d
 			params.fovy = fovy;
 			params.jitter = jitter;
 			params.delta_time = float(p_time_step);
-			params.reset_accumulation = false; // FIXME: The engine does not provide a way to reset the accumulation.
+			params.reset_accumulation = reset_accumulation;
 
 			// DLSS Ray Reconstruction guide buffers are supplied by the raytraced path.
 			if (p_dlss_rr.active) {
@@ -1896,6 +1898,9 @@ void RenderForwardClustered::_render_3d_upscaling(const RenderDataRD *p_render_d
 
 			rb->set_upscaler_ready(dlss_effect->is_ready(rb_data->get_dlss_context()));
 			dlss_effect->upscale(params);
+		}
+		if (can_consume_reset) {
+			rb->clear_temporal_reset();
 		}
 	} else if (p_scale_type == SCALE_3D_MFX) {
 #ifdef METAL_MFXTEMPORAL_ENABLED

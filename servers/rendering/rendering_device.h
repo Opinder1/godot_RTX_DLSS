@@ -1331,6 +1331,7 @@ private:
 		// BLAS/TLAS are weakly linked, as opposed to RD dependencies.
 		HashSet<RID> acceleration_structure_dependencies;
 		bool invalidated = true;
+		bool ray_query_only = false;
 
 		// Scratch buffer used during build, owned by the AS.
 		RDD::BufferID scratch_buffer;
@@ -1418,7 +1419,7 @@ public:
 
 	Error blas_build(RID p_blas);
 	Error blas_update(RID p_blas);
-	Error tlas_build(RID p_tlas, Span<AccelerationStructureInstance> p_instances);
+	Error tlas_build(RID p_tlas, Span<AccelerationStructureInstance> p_instances, bool p_ray_query_only = false);
 
 private:
 	/**********************************/
@@ -2043,7 +2044,7 @@ private:
 	Error _buffer_update_bind(RID p_buffer, uint32_t p_offset, uint32_t p_size, const Vector<uint8_t> &p_data);
 
 	RID _blas_create(const TypedArray<RDAccelerationStructureGeometry> &p_geometries, BitField<AccelerationStructureFlagBits> p_flags);
-	Error _tlas_build(RID p_tlas, const TypedArray<RDAccelerationStructureInstance> &p_instances);
+	Error _tlas_build(RID p_tlas, const TypedArray<RDAccelerationStructureInstance> &p_instances, bool p_ray_query_only = false);
 
 	Error _hit_sbt_range_update(RID p_hit_sbt, HitShaderBindingTableRange p_range, uint32_t p_offset, const Vector<int32_t> &p_hit_group_indices);
 

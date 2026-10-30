@@ -21,6 +21,9 @@ params;
 
 void main() {
 	const ivec2 screen_pos = ivec2(gl_GlobalInvocationID.xy);
+	if (any(greaterThanEqual(screen_pos, ivec2(params.resolution.xy)))) {
+		return;
+	}
 	vec2 velocity = imageLoad(velocity_buffer, screen_pos).rg;
 
 	bool is_invalid_motion_vector = all(lessThanEqual(velocity, vec2(-1.0f, -1.0f)));

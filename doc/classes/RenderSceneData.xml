@@ -10,6 +10,12 @@
 	<tutorials>
 	</tutorials>
 	<methods>
+		<method name="get_taa_jitter" qualifiers="const">
+			<return type="Vector2" />
+			<description>
+				Returns the current projection jitter in normalized device coordinates. Subtract it from projected positions when writing unjittered motion vectors.
+			</description>
+		</method>
 		<method name="get_cam_projection" qualifiers="const">
 			<return type="Projection" />
 			<description>

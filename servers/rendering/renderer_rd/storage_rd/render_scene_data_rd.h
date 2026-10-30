@@ -88,6 +88,7 @@ public:
 
 	virtual Transform3D get_cam_transform() const override;
 	virtual Projection get_cam_projection() const override;
+	virtual Vector2 get_taa_jitter() const override { return taa_jitter; }
 
 	virtual uint32_t get_view_count() const override;
 	virtual Vector3 get_view_eye_offset(uint32_t p_view) const override;

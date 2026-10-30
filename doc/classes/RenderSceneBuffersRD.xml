@@ -12,6 +12,12 @@
 	<tutorials>
 	</tutorials>
 	<methods>
+		<method name="request_temporal_reset">
+			<return type="void" />
+			<description>
+				Requests a DLSS temporal-history reset, for example after a camera cut or compositor source edit. The request is retained until DLSS has completed initialization and evaluates a frame.
+			</description>
+		</method>
 		<method name="clear_context">
 			<return type="void" />
 			<param index="0" name="context" type="StringName" />

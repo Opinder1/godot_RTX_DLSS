@@ -69,6 +69,7 @@ class RenderSceneBuffersRD : public RenderSceneBuffers {
 
 private:
 	bool upscaler_ready = false;
+	bool temporal_reset_requested = true;
 	bool depth_reconstruct_requested = false;
 	bool can_be_storage = true;
 	bool force_hdr = false;
@@ -241,6 +242,9 @@ public:
 	_FORCE_INLINE_ RID get_render_target() const { return render_target; }
 	_FORCE_INLINE_ uint32_t get_view_count() const { return view_count; }
 	_FORCE_INLINE_ Size2i get_internal_size() const { return internal_size; }
+	void request_temporal_reset() { temporal_reset_requested = true; }
+	bool is_temporal_reset_requested() const { return temporal_reset_requested; }
+	void clear_temporal_reset() { temporal_reset_requested = false; }
 	_FORCE_INLINE_ Size2i get_target_size() const { return target_size; }
 	_FORCE_INLINE_ RSE::ViewportScaling3DMode get_scaling_3d_mode() const { return scaling_3d_mode; }
 	_FORCE_INLINE_ float get_fsr_sharpness() const { return fsr_sharpness; }

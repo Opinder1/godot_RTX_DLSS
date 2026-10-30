@@ -533,8 +533,9 @@ Error RenderingDevice::blas_update(RID p_blas) {
 	return OK;
 }
 
-Error RenderingDevice::tlas_build(RID p_tlas, Span<AccelerationStructureInstance> p_instances) {
+Error RenderingDevice::tlas_build(RID p_tlas, Span<AccelerationStructureInstance> p_instances, bool p_ray_query_only) {
 	ERR_RENDER_THREAD_GUARD_V(ERR_UNAVAILABLE);
+	ERR_FAIL_COND_V_MSG(p_ray_query_only && !has_feature(SUPPORTS_RAY_QUERY), ERR_UNAVAILABLE, "Ray-query-only TLAS requires ray query support.");
 
 	ERR_FAIL_COND_V_MSG(draw_list.active, ERR_INVALID_PARAMETER, "Building TLAS is forbidden during creation of a draw list.");
 	ERR_FAIL_COND_V_MSG(compute_list.active, ERR_INVALID_PARAMETER, "Building TLAS is forbidden during creation of a compute list.");
@@ -612,11 +613,11 @@ Error RenderingDevice::tlas_build(RID p_tlas, Span<AccelerationStructureInstance
 		rdd_instance.transform = rd_instance.transform;
 		rdd_instance.id = rd_instance.id;
 		rdd_instance.mask = rd_instance.mask;
-		rdd_instance.hit_sbt_offset = _decode_hit_sbt_range_offset(rd_instance.hit_sbt_range);
+		rdd_instance.hit_sbt_offset = p_ray_query_only ? 0 : _decode_hit_sbt_range_offset(rd_instance.hit_sbt_range);
 		rdd_instance.flags = rd_instance.flags;
 
 		if (rd_instance.blas.is_valid()) {
-			ERR_FAIL_COND_V_MSG(!rd_instance.hit_sbt_range, ERR_INVALID_PARAMETER, "Instance " + itos(i) + " has an invalid hit shader binding table range.");
+			ERR_FAIL_COND_V_MSG(!p_ray_query_only && !rd_instance.hit_sbt_range, ERR_INVALID_PARAMETER, "Instance " + itos(i) + " has an invalid hit shader binding table range.");
 
 			AccelerationStructure *blas = acceleration_structure_owner.get_or_null(rd_instance.blas);
 			ERR_FAIL_NULL_V(blas, ERR_INVALID_PARAMETER);
@@ -641,6 +642,7 @@ Error RenderingDevice::tlas_build(RID p_tlas, Span<AccelerationStructureInstance
 
 	draw_graph.add_tlas_build(tlas->driver_id, tlas->scratch_buffer, instance_buffer.driver_id, instance_buffer_offset, p_instances.size(), tlas->draw_tracker, draw_trackers);
 
+	tlas->ray_query_only = p_ray_query_only;
 	tlas->invalidated = false;
 
 	return OK;
@@ -6582,14 +6584,13 @@ void RenderingDevice::raytracing_list_bind_uniform_set(RaytracingListID p_list, 
 	UniformSet *uniform_set = uniform_set_owner.get_or_null(p_uniform_set);
 	ERR_FAIL_NULL(uniform_set);
 
-#ifdef DEBUG_ENABLED
 	// Validate the acceleration structures.
 	for (RID acceleration_structure_id : uniform_set->acceleration_structures) {
 		AccelerationStructure *acceleration_structure = acceleration_structure_owner.get_or_null(acceleration_structure_id);
 		ERR_FAIL_NULL(acceleration_structure);
+		ERR_FAIL_COND_MSG(acceleration_structure->ray_query_only, "A ray-query-only TLAS cannot be used by a raytracing pipeline.");
 		ERR_FAIL_COND_MSG(acceleration_structure->invalidated, "Acceleration structure either has not been built yet, or has been invalidated by an operation and needs to be rebuilt.");
 	}
-#endif
 
 	if (p_index > raytracing_list.state.set_count) {
 		raytracing_list.state.set_count = p_index;
@@ -9259,7 +9260,7 @@ void RenderingDevice::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("blas_create", "geometries", "flags"), &RenderingDevice::_blas_create);
 	ClassDB::bind_method(D_METHOD("tlas_create", "max_instance_count", "flags"), &RenderingDevice::tlas_create);
 	ClassDB::bind_method(D_METHOD("blas_build", "blas"), &RenderingDevice::blas_build);
-	ClassDB::bind_method(D_METHOD("tlas_build", "tlas", "instances"), &RenderingDevice::_tlas_build);
+	ClassDB::bind_method(D_METHOD("tlas_build", "tlas", "instances", "ray_query_only"), &RenderingDevice::_tlas_build, DEFVAL(false));
 
 	ClassDB::bind_method(D_METHOD("hit_sbt_create", "raytracing_pipeline", "initial_hit_group_capacity"), &RenderingDevice::hit_sbt_create);
 	ClassDB::bind_method(D_METHOD("hit_sbt_set_pipeline", "hit_sbt", "raytracing_pipeline"), &RenderingDevice::hit_sbt_set_pipeline);
@@ -10225,7 +10226,7 @@ RID RenderingDevice::_blas_create(const TypedArray<RDAccelerationStructureGeomet
 	return blas_create(geometries, p_flags);
 }
 
-Error RenderingDevice::_tlas_build(RID p_tlas, const TypedArray<RDAccelerationStructureInstance> &p_instances) {
+Error RenderingDevice::_tlas_build(RID p_tlas, const TypedArray<RDAccelerationStructureInstance> &p_instances, bool p_ray_query_only) {
 	thread_local LocalVector<AccelerationStructureInstance> instances;
 	instances.resize(p_instances.size());
 
@@ -10235,7 +10236,7 @@ Error RenderingDevice::_tlas_build(RID p_tlas, const TypedArray<RDAccelerationSt
 		instances[i] = instance->base;
 	}
 
-	return tlas_build(p_tlas, instances);
+	return tlas_build(p_tlas, instances, p_ray_query_only);
 }
 
 Error RenderingDevice::_hit_sbt_range_update(RID p_hit_sbt, HitShaderBindingTableRange p_range, uint32_t p_offset, const Vector<int32_t> &p_hit_group_indices) {

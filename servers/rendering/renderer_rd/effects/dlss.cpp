@@ -35,6 +35,7 @@
 #endif
 
 #ifdef ENABLE_DLSS
+#include "drivers/streamline/streamline.h"
 #include "drivers/streamline/streamline_context.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
@@ -56,6 +57,7 @@ public:
 	sl::DLSSOptions currentDlssOptions;
 	sl::DLSSOptimalSettings currentOptimalSettings;
 	sl::DLSSDOptions currentDlssDOptions; // DLSS Ray Reconstruction options
+	uint32_t currentFrameGenerationFrames = 0;
 
 	DLSSContextInner();
 	virtual ~DLSSContextInner();
@@ -146,6 +148,10 @@ static Vector<unsigned int> g_dlss_freeViewportIndices;
 static unsigned int g_dlss_viewportIndex = 1;
 
 DLSSContextInner::~DLSSContextInner() {
+	StreamlineContext &streamline = StreamlineContext::get();
+	if (streamline.slShutdown != nullptr && streamline.dlssg_viewport == viewport) {
+		streamline.dlssg_disable();
+	}
 	g_dlss_freeViewportIndices.push_back((unsigned int)viewport);
 }
 
@@ -255,7 +261,11 @@ void DLSSEffect::upscale(const DLSSContext::Parameters &p_params) {
 		push_constants[1] = texture_format.height;
 		push_constants[2] = 0.0f;
 		push_constants[3] = 0.0f;
-		memcpy(push_constants + 4, &p_params.reprojection.columns[0].x, sizeof(float) * 16);
+		for (int column = 0; column < 4; column++) {
+			for (int row = 0; row < 4; row++) {
+				push_constants[4 + column * 4 + row] = float(p_params.reprojection[column][row]);
+			}
+		}
 		RD::get_singleton()->compute_list_set_push_constant(compute_list, push_constants, sizeof(push_constants));
 
 		RD::get_singleton()->compute_list_dispatch_threads(compute_list, texture_format.width, texture_format.height, 1);
@@ -425,9 +435,9 @@ void DLSSEffect::_upscale_internal(RDD::CommandBufferID cmdid, const DLSSContext
 		context->constants.prevClipToClip = sl_convert_matrix(p_params.reprojection.inverse()); // inverted reprojection matrix
 
 		context->constants.cameraPos = sl_convert_vector(p_params.cam_transform.get_origin());
-		context->constants.cameraFwd = sl_convert_vector(-p_params.cam_transform.get_basis().rows[2]);
-		context->constants.cameraUp = sl_convert_vector(p_params.cam_transform.get_basis().rows[1]);
-		context->constants.cameraRight = sl_convert_vector(p_params.cam_transform.get_basis().rows[0]);
+		context->constants.cameraFwd = sl_convert_vector(-p_params.cam_transform.get_basis().get_column(2));
+		context->constants.cameraUp = sl_convert_vector(p_params.cam_transform.get_basis().get_column(1));
+		context->constants.cameraRight = sl_convert_vector(p_params.cam_transform.get_basis().get_column(0));
 
 		context->constants.cameraNear = p_params.z_near;
 		context->constants.cameraFar = p_params.z_far;
@@ -477,16 +487,26 @@ void DLSSEffect::_upscale_internal(RDD::CommandBufferID cmdid, const DLSSContext
 	}
 
 	// Toggle DLSS Frame Generation (only enabled in game mode)
-	if (StreamlineContext::get().slDLSSGSetOptions != nullptr && StreamlineContext::get().is_game && StreamlineContext::get().streamline_capabilities.dlss_g_available) {
+	if (StreamlineContext::get().slDLSSGSetOptions != nullptr && StreamlineContext::get().is_game && StreamlineContext::get().streamline_capabilities.dlss_g_available && (p_params.dlss_g || StreamlineContext::get().dlssg_viewport == context->viewport || Streamline::get_singleton()->get_frame_generation_max_generated_frames() == 0)) {
 		sl::DLSSGOptions dlssGOptions{};
+		uint32_t requested_frames = Streamline::get_singleton()->get_requested_frame_generation_frames();
+		dlssGOptions.numFramesToGenerate = requested_frames;
 		bool wantActivateDLSSG = p_params.dlss_g;
 		bool canActivateDLSSG = StreamlineContext::get().dlssg_delay == 0;
+		sl::DLSSGState dlssGState{};
+		sl::Result state_result = StreamlineContext::get().slDLSSGGetState != nullptr ?
+				StreamlineContext::get().slDLSSGGetState(context->viewport, dlssGState, nullptr) : sl::Result::eErrorFeatureNotSupported;
+		bool state_valid = state_result == sl::Result::eOk && dlssGState.status == sl::DLSSGStatus::eOk;
+		bool resolution_valid = context->currentDlssOptions.outputWidth >= dlssGState.minWidthOrHeight && context->currentDlssOptions.outputHeight >= dlssGState.minWidthOrHeight;
+		bool multiplier_valid = requested_frames > 0 && requested_frames <= dlssGState.numFramesToGenerateMax;
+		wantActivateDLSSG = wantActivateDLSSG && state_valid && resolution_valid && multiplier_valid;
 
 		// Disable previous DLSS-G context if needed
 		if (StreamlineContext::get().dlssg_viewport != sl::ViewportHandle(-1) && ((!wantActivateDLSSG && StreamlineContext::get().dlssg_viewport == context->viewport) || (wantActivateDLSSG && StreamlineContext::get().dlssg_viewport != context->viewport))) {
 			WARN_PRINT("Disabling DLSS-G on viewport: " + itos((unsigned int)StreamlineContext::get().dlssg_viewport));
-			dlssGOptions.mode = sl::DLSSGMode::eOff;
-			sl::Result result = StreamlineContext::get().slDLSSGSetOptions(StreamlineContext::get().dlssg_viewport, dlssGOptions);
+			sl::DLSSGOptions disable_options{};
+			disable_options.mode = sl::DLSSGMode::eOff;
+			sl::Result result = StreamlineContext::get().slDLSSGSetOptions(StreamlineContext::get().dlssg_viewport, disable_options);
 			if (result != sl::Result::eOk) {
 				ERR_FAIL_MSG("Failed to call streamline slDLSSGSetOptions. Result: " + String(StreamlineContext::result_to_string(result)));
 			}
@@ -495,7 +515,7 @@ void DLSSEffect::_upscale_internal(RDD::CommandBufferID cmdid, const DLSSContext
 		}
 
 		// Enable new DLSS-G context if needed
-		if (canActivateDLSSG && wantActivateDLSSG && StreamlineContext::get().dlssg_viewport != context->viewport) {
+		if (canActivateDLSSG && wantActivateDLSSG && (StreamlineContext::get().dlssg_viewport != context->viewport || context->currentFrameGenerationFrames != requested_frames)) {
 			WARN_PRINT("Enabling DLSS-G on viewport: " + itos((unsigned int)context->viewport));
 
 			dlssGOptions.mode = sl::DLSSGMode::eOn;
@@ -505,7 +525,12 @@ void DLSSEffect::_upscale_internal(RDD::CommandBufferID cmdid, const DLSSContext
 			}
 
 			StreamlineContext::get().dlssg_viewport = context->viewport;
+			context->currentFrameGenerationFrames = requested_frames;
 		}
+		Streamline::get_singleton()->record_frame_generation_state(
+				StreamlineContext::get().dlssg_viewport == context->viewport,
+				(uint32_t)dlssGState.status, dlssGState.minWidthOrHeight, dlssGState.numFramesActuallyPresented, (int64_t)state_result,
+				dlssGState.numFramesToGenerateMax, context->currentFrameGenerationFrames);
 	}
 
 	// Evaluate DLSS Super Resolution or DLSS Ray Reconstruction
@@ -525,6 +550,7 @@ void DLSSEffect::_upscale_internal(RDD::CommandBufferID cmdid, const DLSSContext
 			if (result != sl::Result::eOk) {
 				ERR_FAIL_MSG("Failed to call streamline slEvaluateFeature for DLSS Super Resolution. Result: " + String(StreamlineContext::result_to_string(result)));
 			}
+			Streamline::get_singleton()->record_dlss_evaluation();
 		}
 	}
 

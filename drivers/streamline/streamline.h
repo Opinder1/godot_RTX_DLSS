@@ -33,13 +33,28 @@
 #include "core/object/class_db.h" // IWYU pragma: keep
 #include "core/object/object.h"
 #include "core/os/thread_safe.h"
+#include "core/templates/safe_refcount.h"
 #include "core/variant/binder_common.h" // IWYU pragma: keep
+#include "core/variant/dictionary.h"
 #include "core/variant/variant.h"
 #include "drivers/streamline/streamline_data.h"
 
 class Streamline : public Object {
 	GDCLASS(Streamline, Object);
 	_THREAD_SAFE_CLASS_
+	SafeNumeric<uint64_t> dlss_evaluations{ 0 };
+	SafeNumeric<uint32_t> requested_frame_generation_frames{ 1 };
+	struct FrameGenerationState {
+		SafeNumeric<uint64_t> rendered_frames{ 0 };
+		SafeNumeric<uint64_t> presented_frames{ 0 };
+		SafeNumeric<uint32_t> status{ 0 };
+		SafeNumeric<uint32_t> min_dimension{ 0 };
+		SafeNumeric<uint32_t> max_generated_frames{ 0 };
+		SafeNumeric<uint32_t> generated_frames{ 0 };
+		SafeNumeric<int64_t> query_result{ -1 };
+		SafeNumeric<bool> enabled{ false };
+	} frame_generation_state;
+
 protected:
 	static void _bind_methods();
 	static Streamline *singleton;
@@ -51,6 +66,18 @@ public:
 	void emit_marker(StreamlineMarkerType p_marker);
 	void set_parameter(StreamlineParameterType p_parameter_type, const Variant &p_value);
 	bool get_capability(StreamlineCapabilityType p_capability_type);
+	uint64_t get_dlss_evaluation_count() const { return dlss_evaluations.get(); }
+	void record_dlss_evaluation() { dlss_evaluations.increment(); }
+	Dictionary get_frame_generation_state() const;
+	void record_frame_generation_state(bool p_enabled, uint32_t p_status, uint32_t p_min_dimension, uint32_t p_presented_frames, int64_t p_query_result, uint32_t p_max_generated_frames, uint32_t p_generated_frames);
+	uint32_t get_requested_frame_generation_frames() const { return requested_frame_generation_frames.get(); }
+	uint32_t get_frame_generation_max_generated_frames() const { return frame_generation_state.max_generated_frames.get(); }
+	void set_frame_generation_enabled(bool p_enabled) {
+		frame_generation_state.enabled.set(p_enabled);
+		if (!p_enabled) {
+			frame_generation_state.generated_frames.set(0);
+		}
+	}
 
 	void set_internal_parameter(const char *p_key, void *p_value);
 	void *get_internal_parameter(StreamlineInternalParameterType p_internal_parameter_type);

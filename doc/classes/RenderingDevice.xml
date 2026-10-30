@@ -1292,8 +1292,10 @@
 			<return type="int" enum="Error" />
 			<param index="0" name="tlas" type="RID" />
 			<param index="1" name="instances" type="RDAccelerationStructureInstance[]" />
+			<param index="2" name="ray_query_only" type="bool" default="false" />
 			<description>
 				Builds the [param tlas]. The contents of previous builds are discarded.
+				When [param ray_query_only] is [code]true[/code], shader binding table ranges are ignored and may be zero. Such a TLAS is for ray queries only, and cannot be bound to a raytracing pipeline.
 				Any BLAS provided through the [member RDAccelerationStructureInstance.blas] member must already have been built using the [method blas_build] method.
 				The number of instances can be equal to or smaller than the maximum instance count provided in the [method tlas_create] method.
 				[b]Note:[/b] Freeing or rebuilding any of the provided BLASes after this method invalidates the TLAS and requires it to be rebuilt.

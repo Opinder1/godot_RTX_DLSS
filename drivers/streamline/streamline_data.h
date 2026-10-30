@@ -78,5 +78,6 @@ enum StreamlineParameterType {
 	STREAMLINE_PARAM_REFLEX_FRAME_LIMIT_US, // [double] frame limit in microseconds
 	STREAMLINE_PARAM_DLSS_PRESET, // [string] DLSS preset. Defaults to "?" (auto). Can be overridden to "J" or "K" for transformer models.
 	STREAMLINE_PARAM_DLSS_RR_PRESET, // [string] DLSS RR preset. Defaults to "?" (auto). Can be overridden to "D" or "E" for transformer models.
+	STREAMLINE_PARAM_DLSS_G_FRAMES, // [int] Generated frames per rendered frame, 1..5 for 2x..6x. Runtime support is checked before submission.
 	STREAMLINE_PARAM_COUNT,
 };

@@ -42,11 +42,14 @@ Streamline *Streamline::singleton = nullptr;
 void Streamline::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_parameter", "parameter_type", "value"), &Streamline::set_parameter);
 	ClassDB::bind_method(D_METHOD("get_capability", "capability_type"), &Streamline::get_capability);
+	ClassDB::bind_method(D_METHOD("get_dlss_evaluation_count"), &Streamline::get_dlss_evaluation_count);
+	ClassDB::bind_method(D_METHOD("get_frame_generation_state"), &Streamline::get_frame_generation_state);
 
 	BIND_ENUM_CONSTANT(STREAMLINE_PARAM_REFLEX_MODE);
 	BIND_ENUM_CONSTANT(STREAMLINE_PARAM_REFLEX_FRAME_LIMIT_US);
 	BIND_ENUM_CONSTANT(STREAMLINE_PARAM_DLSS_PRESET);
 	BIND_ENUM_CONSTANT(STREAMLINE_PARAM_DLSS_RR_PRESET);
+	BIND_ENUM_CONSTANT(STREAMLINE_PARAM_DLSS_G_FRAMES);
 
 	BIND_ENUM_CONSTANT(STREAMLINE_CAPABILITY_DLSS);
 	BIND_ENUM_CONSTANT(STREAMLINE_CAPABILITY_DLSS_G);
@@ -78,6 +81,34 @@ Streamline::Streamline() {
 
 Streamline::~Streamline() {
 	singleton = nullptr;
+}
+
+Dictionary Streamline::get_frame_generation_state() const {
+	Dictionary state;
+	state["enabled"] = frame_generation_state.enabled.get();
+	state["status"] = frame_generation_state.status.get();
+	state["min_dimension"] = frame_generation_state.min_dimension.get();
+	state["max_generated_frames"] = frame_generation_state.max_generated_frames.get();
+	state["generated_frames"] = frame_generation_state.generated_frames.get();
+	state["query_result"] = frame_generation_state.query_result.get();
+	state["rendered_frames"] = frame_generation_state.rendered_frames.get();
+	state["presented_frames"] = frame_generation_state.presented_frames.get();
+	return state;
+}
+
+void Streamline::record_frame_generation_state(bool p_enabled, uint32_t p_status, uint32_t p_min_dimension, uint32_t p_presented_frames, int64_t p_query_result, uint32_t p_max_generated_frames, uint32_t p_generated_frames) {
+	frame_generation_state.status.set(p_status);
+	frame_generation_state.min_dimension.set(p_min_dimension);
+	frame_generation_state.query_result.set(p_query_result);
+	if (p_query_result == 0 && p_max_generated_frames > 0) {
+		frame_generation_state.max_generated_frames.set(p_max_generated_frames);
+	}
+	frame_generation_state.generated_frames.set(p_enabled ? p_generated_frames : 0);
+	if (p_enabled) {
+		frame_generation_state.rendered_frames.increment();
+		frame_generation_state.presented_frames.add(p_presented_frames);
+	}
+	frame_generation_state.enabled.set(p_enabled);
 }
 
 void Streamline::update_project_settings() {
@@ -194,6 +225,10 @@ void Streamline::set_parameter(StreamlineParameterType p_parameter_type, const V
 	_THREAD_SAFE_METHOD_
 	switch (p_parameter_type) {
 #ifdef STREAMLINE_ENABLED
+		case StreamlineParameterType::STREAMLINE_PARAM_DLSS_G_FRAMES: {
+			requested_frame_generation_frames.set((uint32_t)CLAMP((int64_t)p_value, 1, 5));
+			break;
+		}
 		case StreamlineParameterType::STREAMLINE_PARAM_REFLEX_MODE: {
 			double val = p_value;
 			sl::ReflexMode newMode;
